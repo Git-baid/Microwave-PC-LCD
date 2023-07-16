@@ -1,3 +1,5 @@
+# Code is unused now, as image data is sent directly from baidbot hosted on a raspberry pi to the ESP32 now.
+
 import time
 import serial
 import socket
