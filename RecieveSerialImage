@@ -1,11 +1,18 @@
 #include <PNGdec.h>
+#include "SevenSeg.h"   // Seven Segment Display Font for clock
+#include "NotoSansBold15.h"   // Standard Font
+
+// Clock functionality
+#include <WiFi.h>
+#include "time.h"
+#include "NetworkProperties.h"   // ssid and password for home network
 
 PNG png; // PNG decoder instance
 
-#define MAX_IMAGE_WIDTH 240 // Adjust for your images
+#define MAX_IMAGE_WIDTH 320 // Adjust for your images
 
-int16_t xpos = 0;
-int16_t ypos = 0;
+int xpos = 0;
+int ypos = 80;
 
 // Include the TFT library https://github.com/Bodmer/TFT_eSPI
 #include "SPI.h"
@@ -13,9 +20,77 @@ int16_t ypos = 0;
 TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 
 int imageSize = 0;  // length of image array
-char startMarker = '<'; //Marks the start of the image array
-char endMarker = '>'; //Marks the end of the image array
+const char startMarker = '<'; //Marks the start of the image array
+const char endMarker = '>'; //Marks the end of the image array
 String content = "";  //temp String to hold serial input before insertion to data[]
+
+const char* ntpServer = "us.pool.ntp.org";
+const int gmtOffset_sec = -28800;   //GMT-8:00 Alaska Time
+const int daylightOffset_sec = 0;
+int prevSec = -1;
+int prevHour = -1;
+int prevMin = -1;
+
+const int hourPos = 10;
+const int secPos = 150;
+const int minPos = 170;
+const int clockYOffset = 100;
+
+
+void printLocalTime()
+{
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+
+  tft.loadFont(SevenSeg); // ONLY has '0-9' and ':' characters, size 86pt
+
+  //Hour
+  if(timeinfo.tm_hour != prevHour){
+    // clear previous hour
+    tft.setCursor(hourPos, clockYOffset);
+    tft.setTextColor(TFT_BLACK,TFT_BLACK);
+    tft.print("88");
+
+    // display current hour
+    tft.setCursor(hourPos, clockYOffset);
+    tft.setTextColor(TFT_WHITE,TFT_BLACK);
+    tft.print(&timeinfo, "%I");
+  }
+
+  //Seconds
+  if(timeinfo.tm_sec % 2 == 0){
+    // clear colon symbol
+    tft.setCursor(secPos, clockYOffset);
+    tft.setTextColor(TFT_BLACK,TFT_BLACK);
+    tft.print(":");
+  }
+  else{
+    // display colon symbol
+    tft.setCursor(secPos, clockYOffset);
+    tft.setTextColor(TFT_WHITE,TFT_BLACK);
+    tft.print(":");
+  }
+
+  //Minutes
+  if(timeinfo.tm_min != prevMin){
+    // clear previous minute
+    tft.setCursor(minPos, clockYOffset);
+    tft.setTextColor(TFT_BLACK,TFT_BLACK);
+    tft.print("88");
+
+    // display current minute
+    tft.setCursor(minPos, clockYOffset);
+    tft.setTextColor(TFT_WHITE,TFT_BLACK);
+    tft.print(&timeinfo, "%M");
+  }
+
+  prevSec = timeinfo.tm_sec;
+  prevMin = timeinfo.tm_min;
+  prevHour = timeinfo.tm_hour;
+}
 
 //====================================================================================
 //                                    Setup
@@ -25,16 +100,37 @@ void setup()
   Serial.begin(115200, SERIAL_8E1);
   Serial.setRxBufferSize(8196);
 
+  // Sync ESP32 Real-Time Clock to pool.ntp servers
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED){
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi Connected");
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  //initialize LCD Screen
   tft.begin();
-    
+  tft.setRotation(1);
+
   // Set "cursor" at top left corner of display (0,0) and select font 1
   // (cursor will move to next line automatically during printing with 'tft.println'
   //  or stay on the line is there is room for the text with tft.print)
-  tft.setCursor(0, 0, 1);
+  tft.setCursor(0, 0);
   // Set the font colour to be white with a black background, set text size multiplier to 1
   tft.setTextColor(TFT_WHITE,TFT_BLACK);  
-  tft.setTextSize(1);
   tft.fillScreen(TFT_BLACK);
+  tft.loadFont(NotoSansBold15);
   tft.print("Ready!");
 }
 
@@ -44,8 +140,11 @@ void setup()
 void loop()
 {
   if (Serial.available() && Serial.read() == startMarker) {
-    tft.setCursor(0, 0, 1);
-    tft.print("Reading...");
+    tft.loadFont(NotoSansBold15);
+    tft.setCursor(0, 0);
+    tft.setTextColor(TFT_WHITE,TFT_BLACK);  
+    tft.setTextSize(1);
+    tft.print("Reading Incoming Data...");
 
     int iter = 0;
 
@@ -77,16 +176,8 @@ void loop()
         }
       }
     }
-    tft.print("   first elements of data: ");
-    tft.print(data[0]);
-    tft.print(", ");
-    tft.print(data[1]);
-    delay(3000);
 
     tft.fillScreen(TFT_BLACK);
-    tft.setCursor(0, 0, 1);
-    tft.print("Processing image...");
-
 
     //display data[] as image
     int16_t rc = png.openFLASH((uint8_t *)data, imageSize, pngDraw);
@@ -103,7 +194,10 @@ void loop()
 
     //clear serial buffer
     while(Serial.available() > 0)
-        char temp = Serial.read();
+      char temp = Serial.read();
+  }
+  else{  // If no serial input is detected, print the time
+    printLocalTime();
   }
 }
 
