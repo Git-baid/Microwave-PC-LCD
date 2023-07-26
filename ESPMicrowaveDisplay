@@ -7,17 +7,17 @@
 #include "time.h"
 #include "NetworkProperties.h"   // ssid and password for home network
 
-PNG png; // PNG decoder instance
-
-#define MAX_IMAGE_WIDTH 320 // Adjust for your images
-
-int xpos = 0;
-int ypos = 80;
-
 // Include the TFT library https://github.com/Bodmer/TFT_eSPI
 #include "SPI.h"
 #include <TFT_eSPI.h>              // Hardware-specific library
+
+#define MAX_IMAGE_WIDTH 320 // Adjust for your images
+
+PNG png; // PNG decoder instance
 TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
+
+int xpos = 0;
+int ypos = 0;
 
 int imageSize = 0;  // length of image array
 const char startMarker = '<'; //Marks the start of the image array
@@ -34,14 +34,26 @@ int prevMin = -1;
 const int hourPos = 10;
 const int secPos = 150;
 const int minPos = 170;
-const int clockYOffset = 100;
+const int clockYOffset = 40;
 
+bool clockEnabled = true;
+const int clearImagePin = 13;
+const int clearImagePout = 14;
+
+void displayTimeInitError(){
+  tft.loadFont(NotoSansBold15);
+  Serial.println("Failed to obtain time");
+  tft.setCursor(hourPos, clockYOffset);
+  tft.setTextColor(TFT_RED,TFT_BLACK);
+  tft.print("Failed to retrieve time");
+  ESP.restart();
+}
 
 void printLocalTime()
 {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
-    Serial.println("Failed to obtain time");
+    displayTimeInitError();
     return;
   }
 
@@ -109,19 +121,11 @@ void setup()
   Serial.println("");
   Serial.println("WiFi Connected");
 
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
-    Serial.println("Failed to obtain time");
-    return;
-  }
-
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-
   //initialize LCD Screen
   tft.begin();
   tft.setRotation(1);
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   // Set "cursor" at top left corner of display (0,0) and select font 1
   // (cursor will move to next line automatically during printing with 'tft.println'
@@ -130,8 +134,18 @@ void setup()
   // Set the font colour to be white with a black background, set text size multiplier to 1
   tft.setTextColor(TFT_WHITE,TFT_BLACK);  
   tft.fillScreen(TFT_BLACK);
-  tft.loadFont(NotoSansBold15);
-  tft.print("Ready!");
+
+  pinMode(clearImagePin, INPUT_PULLDOWN);
+  pinMode(clearImagePout, OUTPUT);
+
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    displayTimeInitError();
+    return;
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
 }
 
 //====================================================================================
@@ -144,14 +158,12 @@ void loop()
     tft.setCursor(0, 0);
     tft.setTextColor(TFT_WHITE,TFT_BLACK);  
     tft.setTextSize(1);
-    tft.print("Reading Incoming Data...");
+    tft.print("Incoming Image...");
 
     int iter = 0;
 
     //read buffer until first comma, then input that value into imageSize as integer
     imageSize = std::stoi(Serial.readStringUntil(',').c_str());
-    tft.print("   imageSize: ");
-    tft.print(imageSize);
 
     //initialize dynamic char array in heap of length imageSize
     unsigned char* data = new unsigned char[imageSize];
@@ -187,6 +199,9 @@ void loop()
       tft.endWrite();
     }
 
+    clockEnabled = false;
+    digitalWrite(clearImagePout, HIGH);
+
     // reset variables
     String content = "";
     delete[] data;
@@ -197,7 +212,18 @@ void loop()
       char temp = Serial.read();
   }
   else{  // If no serial input is detected, print the time
-    printLocalTime();
+    Serial.println(digitalRead(clearImagePin));
+    if(!clockEnabled && digitalRead(clearImagePin) == 1){
+      Serial.println("clockEnabled = false and clearImagePin reads 1");
+      tft.fillScreen(TFT_BLACK);
+      prevSec = -1;
+      prevHour = -1;
+      prevMin = -1;
+      clockEnabled = true;
+      digitalWrite(clearImagePout, LOW);
+    }
+    if(clockEnabled)
+      printLocalTime();
   }
 }
 
@@ -211,6 +237,7 @@ void loop()
 // Callback function to draw pixels to the display
 void pngDraw(PNGDRAW *pDraw) {
   uint16_t lineBuffer[MAX_IMAGE_WIDTH];
+  xpos = ((MAX_IMAGE_WIDTH / 2) - (png.getWidth() / 2));  // center image on screen
   png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
   tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
 }
