@@ -16,14 +16,17 @@
 PNG png; // PNG decoder instance
 TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 
+// image display coord; xpos = pixels right from top left corner; ypos = pixels down from top left corner
 int xpos = 0;
 int ypos = 0;
 
+// image processing
 int imageSize = 0;  // length of image array
 const char startMarker = '<'; //Marks the start of the image array
 const char endMarker = '>'; //Marks the end of the image array
 String content = "";  //temp String to hold serial input before insertion to data[]
 
+// clock
 const char* ntpServer = "us.pool.ntp.org";
 const int gmtOffset_sec = -28800;   //GMT-8:00 Alaska Time
 const int daylightOffset_sec = 0;
@@ -31,14 +34,74 @@ int prevSec = -1;
 int prevHour = -1;
 int prevMin = -1;
 
+//display offsets
 const int hourPos = 10;
 const int secPos = 150;
 const int minPos = 170;
 const int clockYOffset = 40;
+const int cpuTempX = 10;
+const int gpuTempX = 170;
+const int tempY = 140;
 
+// clock toggle
 bool clockEnabled = true;
 const int clearImagePin = 13;
 const int clearImagePout = 14;
+
+// temperature
+WiFiServer server(65432); //server port to listen for temperature client
+int tempResetTime = 10000; // milliseconds
+int prevUpdateTime = -tempResetTime; //allows server ip to show up instantly
+
+void checkForTempUpdates(){
+  static WiFiClient client;
+
+  if (!client)
+    client = server.available();  // Listen for incoming clients
+    if (millis() - prevUpdateTime >= tempResetTime){  // Clear temperature area of screen and print the IP address
+      tft.fillRect(0,139,320,15,TFT_BLACK);
+      tft.setTextColor(TFT_WHITE,TFT_BLACK);  
+      tft.loadFont(NotoSansBold15);
+      tft.setCursor(cpuTempX, tempY);
+      tft.print("Local IP: ");
+      tft.println(WiFi.localIP());
+      prevUpdateTime = millis();
+    }
+  if (client) {  // if client connected
+    int bufferSize = 5;
+    prevUpdateTime = millis();
+
+    if (client.available() >= bufferSize) {    // if data available from client read and display it
+      String readIn = client.readStringUntil('\n');
+      String cpuTemp = "";
+      String gpuTemp = "";
+      cpuTemp += readIn[0];
+      cpuTemp += readIn[1];
+      gpuTemp += readIn[2];
+      gpuTemp += readIn[3];
+
+      // text formatting
+      tft.loadFont(NotoSansBold15);
+      tft.setTextColor(TFT_WHITE,TFT_BLACK);
+      // clear temperature text (x,y,w,h,color)
+      tft.fillRect(0,139,320,15,TFT_BLACK);
+      // print cpu temp
+      tft.setCursor(cpuTempX, tempY);
+      tft.print("CPU: ");
+      tft.print(cpuTemp);
+      tft.print("°C");
+      // print gpu temp
+      tft.setCursor(gpuTempX, tempY);
+      tft.print("GPU: ");
+      tft.print(gpuTemp);
+      tft.print("°C");
+
+      // clear buffer leftovers
+      while (client.available()) 
+        client.read();
+    }
+  }
+}
 
 void displayTimeInitError(){
   tft.loadFont(NotoSansBold15);
@@ -112,14 +175,23 @@ void setup()
   Serial.begin(115200, SERIAL_8E1);
   Serial.setRxBufferSize(8196);
 
-  // Sync ESP32 Real-Time Clock to pool.ntp servers
+  // Connect to wifi
   WiFi.begin(ssid, password);
+
+  tft.setTextColor(TFT_WHITE,TFT_BLACK);  
+  tft.loadFont(NotoSansBold15);
+  tft.setCursor(hourPos, clockYOffset-15);
+  tft.print("Establishing WiFi Connection.");
   while (WiFi.status() != WL_CONNECTED){
     delay(500);
     Serial.print(".");
+    tft.print(".");
   }
   Serial.println("");
   Serial.println("WiFi Connected");
+
+  // Start server for temperature data
+  server.begin();
 
   //initialize LCD Screen
   tft.begin();
@@ -132,7 +204,6 @@ void setup()
   //  or stay on the line is there is room for the text with tft.print)
   tft.setCursor(0, 0);
   // Set the font colour to be white with a black background, set text size multiplier to 1
-  tft.setTextColor(TFT_WHITE,TFT_BLACK);  
   tft.fillScreen(TFT_BLACK);
 
   pinMode(clearImagePin, INPUT_PULLDOWN);
@@ -143,9 +214,6 @@ void setup()
     displayTimeInitError();
     return;
   }
-
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
 }
 
 //====================================================================================
@@ -212,9 +280,7 @@ void loop()
       char temp = Serial.read();
   }
   else{  // If no serial input is detected, print the time
-    Serial.println(digitalRead(clearImagePin));
     if(!clockEnabled && digitalRead(clearImagePin) == 1){
-      Serial.println("clockEnabled = false and clearImagePin reads 1");
       tft.fillScreen(TFT_BLACK);
       prevSec = -1;
       prevHour = -1;
@@ -224,6 +290,7 @@ void loop()
     }
     if(clockEnabled)
       printLocalTime();
+      checkForTempUpdates();
   }
 }
 
