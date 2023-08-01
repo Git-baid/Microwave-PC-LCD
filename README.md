@@ -15,10 +15,10 @@ It also displays current GPU and CPU temperatures of my computer updating every 
 Another functionality I added just for fun is the ability for anyone with access to my [baidbot discord bot](https://github.com/Git-baid/baidbotDiscord) to send a command with an attached image to display it on my microwave. Pressing the clock button clears this image and returns to the clock display.
 For example, baidbot's current icon looks like-
 
-<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/baidbot800x.png" width="320" align="left">
+<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/baidbot800x.png" width="320">
 
 
-<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/20230725_235203.jpg" width="290" align="left">
+<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/20230725_235203.jpg" width="290">
 
-<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/20230725_235213.jpg" width="290" align="left">
+<img src="https://github.com/Git-baid/Microwave-PC-LCD/blob/main/20230725_235213.jpg" width="290">
 
