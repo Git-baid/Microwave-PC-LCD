@@ -28,13 +28,13 @@ String content = "";  //temp String to hold serial input before insertion to dat
 
 // clock
 const char* ntpServer = "us.pool.ntp.org";
-const int gmtOffset_sec = -28800;   //GMT-8:00 Alaska Time
-const int daylightOffset_sec = 0;
+const int gmtOffset_sec = -32400;   //-32400 when daylight savings active, -28800 otherwise (Alaska)
+const int daylightOffset_sec = 0;   //offset in seconds
 int prevSec = -1;
 int prevHour = -1;
 int prevMin = -1;
 
-//display offsets
+//display coordinate offsets
 const int hourPos = 10;
 const int secPos = 150;
 const int minPos = 170;
@@ -53,12 +53,15 @@ WiFiServer server(65432); //server port to listen for temperature client
 int tempResetTime = 10000; // milliseconds
 int prevUpdateTime = -tempResetTime; //allows server ip to show up instantly
 
+const int doorPin = 12;
+bool doorOpen = false;
+
 void checkForTempUpdates(){
   static WiFiClient client;
 
   if (!client)
     client = server.available();  // Listen for incoming clients
-    if (millis() - prevUpdateTime >= tempResetTime){  // Clear temperature area of screen and print the IP address
+    if (millis() - prevUpdateTime >= tempResetTime){  // Clear temperature area of screen and print the IP address if too much time has elapsed from last update
       tft.fillRect(0,139,320,15,TFT_BLACK);
       tft.setTextColor(TFT_WHITE,TFT_BLACK);  
       tft.loadFont(NotoSansBold15);
@@ -162,9 +165,33 @@ void printLocalTime()
     tft.print(&timeinfo, "%M");
   }
 
+  //Placeholder thing until I get an idea for what to do with the door
+  if (digitalRead(doorPin) == 0 && doorOpen){
+    tft.loadFont(NotoSansBold15);
+    tft.setCursor(10, 10);
+    tft.fillRect(10,10,50,17,TFT_BLACK);
+    tft.setTextColor(TFT_RED,TFT_BLACK);
+    tft.print("Closed");
+    doorOpen = false;
+  } else if(digitalRead(doorPin) == 1 && !doorOpen){
+    tft.loadFont(NotoSansBold15);
+    tft.setCursor(10, 10);
+    tft.fillRect(10,10,50,15,TFT_BLACK);    tft.setTextColor(TFT_RED,TFT_BLACK);
+    tft.print("Open");
+    doorOpen = true;
+  }
+
   prevSec = timeinfo.tm_sec;
   prevMin = timeinfo.tm_min;
   prevHour = timeinfo.tm_hour;
+}
+
+void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){
+  Serial.println("Disconnected from WiFi access point");
+  Serial.print("WiFi lost connection. Reason: ");
+  Serial.println(info.wifi_sta_disconnected.reason);
+  Serial.println("Trying to Reconnect");
+  WiFi.begin(ssid, password);
 }
 
 //====================================================================================
@@ -175,8 +202,11 @@ void setup()
   Serial.begin(115200, SERIAL_8E1);
   Serial.setRxBufferSize(8196);
 
+  // Run WiFiStationDisconnected() when wifi disconnects
+  WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   // Connect to wifi
   WiFi.begin(ssid, password);
+
 
   tft.setTextColor(TFT_WHITE,TFT_BLACK);  
   tft.loadFont(NotoSansBold15);
@@ -208,6 +238,7 @@ void setup()
 
   pinMode(clearImagePin, INPUT_PULLDOWN);
   pinMode(clearImagePout, OUTPUT);
+  pinMode(doorPin, INPUT_PULLDOWN);
 
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
@@ -288,9 +319,10 @@ void loop()
       clockEnabled = true;
       digitalWrite(clearImagePout, LOW);
     }
-    if(clockEnabled)
+    if(clockEnabled){
       printLocalTime();
       checkForTempUpdates();
+    }
   }
 }
 
