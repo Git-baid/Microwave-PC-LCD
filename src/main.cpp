@@ -49,7 +49,7 @@ const int clearImagePin = 13;
 const int clearImagePout = 14;
 
 // temperature
-WiFiServer server(65432); //server port to listen for temperature client
+WiFiServer server(59595); //server port to listen for temperature client
 int tempResetTime = 10000; // milliseconds
 int prevUpdateTime = -tempResetTime; //allows server ip to show up instantly
 
@@ -267,7 +267,10 @@ void setup()
 //====================================================================================
 void loop()
 {
-  if (Serial.available() && Serial.read() == startMarker) {
+  // Check for incoming connections
+  WiFiClient client = server.available();
+
+  if(client.available() && client.read() == startMarker){
     tft.loadFont(NotoSansBold15);
     tft.setCursor(0, 0);
     tft.setTextColor(TFT_WHITE,TFT_BLACK);  
@@ -277,15 +280,15 @@ void loop()
     int iter = 0;
 
     //read buffer until first comma, then input that value into imageSize as integer
-    imageSize = std::stoi(Serial.readStringUntil(',').c_str());
+    imageSize = std::stoi(client.readStringUntil(',').c_str());
 
     //initialize dynamic char array in heap of length imageSize
     unsigned char* data = new unsigned char[imageSize];
 
     //loop and read in serial data to data[] until end marker is reached
-    while(true){
-      if(Serial.available()){
-        char readIn = Serial.read();
+    while (true){
+      if(client.available()){
+        char readIn = client.read();
 
         if(readIn == endMarker){
           data[iter] = (unsigned char)std::stoi(content.c_str());
@@ -336,7 +339,7 @@ void loop()
     }
     if(clockEnabled){
       printLocalTime();
-      checkForTempUpdates();
+      //checkForTempUpdates();
     }
   }
 }
