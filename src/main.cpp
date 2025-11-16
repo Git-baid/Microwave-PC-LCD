@@ -27,12 +27,12 @@ const char endMarker = '>'; //Marks the end of the image array
 String content = "";  //temp String to hold serial input before insertion to data[]
 
 // clock
-const char* ntpServer = "us.pool.ntp.org";
-const int gmtOffset_sec = -28800;   //-32400 when daylight savings active, -28800 otherwise (Alaska)
-const int daylightOffset_sec = 0;   //offset in seconds
+const char* ntpServer = "pool.ntp.org";
+const int gmtOffset_sec = -9 * 3600;   // timezone offset (Alaska) (-9 standard, -8 daylight)
 int prevSec = -1;
 int prevHour = -1;
 int prevMin = -1;
+const int getTimeTimeout = 10000; // milliseconds
 
 //display coordinate offsets
 const int hourPos = 10;
@@ -109,17 +109,16 @@ void displayTimeInitError(){
   tft.loadFont(NotoSansBold15);
   Serial.println("Failed to obtain time");
   tft.setCursor(hourPos, clockYOffset);
+  tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_RED,TFT_BLACK);
-  tft.print("Failed to retrieve time");
-  ESP.restart();
+  tft.print("Failed to retrieve time. Retrying...");
 }
 
 void printLocalTime()
 {
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
+  while(!getLocalTime(&timeinfo, getTimeTimeout)){
     displayTimeInitError();
-    return;
   }
 
   tft.loadFont(SevenSeg); // ONLY has '0-9' and ':' characters, size 86pt
@@ -214,14 +213,26 @@ void pngDraw(PNGDRAW *pDraw) {
 //====================================================================================
 void setup()
 {
-  Serial.begin(115200, SERIAL_8E1);
   Serial.setRxBufferSize(8196);
+  Serial.begin(115200);
+  delay(50); // Wait for Serial to initialize
 
   // Run WiFiStationDisconnected() when wifi disconnects
   WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   // Connect to wifi
+  WiFi.config(local_IP, gateway, subnet, primaryDNS); // Manually set DNS server for NTP
   WiFi.begin(ssid, password);
 
+  //initialize LCD Screen
+  tft.begin();
+  tft.setRotation(1);
+  
+  // Set "cursor" at top left corner of display (0,0) and select font 1
+  // (cursor will move to next line automatically during printing with 'tft.println'
+  //  or stay on the line is there is room for the text with tft.print)
+  tft.setCursor(0, 0);
+  // Set the font colour to be white with a black background, set text size multiplier to 1
+  tft.fillScreen(TFT_BLACK);
 
   tft.setTextColor(TFT_WHITE,TFT_BLACK);  
   tft.loadFont(NotoSansBold15);
@@ -233,33 +244,23 @@ void setup()
     tft.print(".");
   }
   Serial.println("");
-  Serial.println("WiFi Connected");
+  Serial.println("\nWiFi Connected");
+  tft.println("\nWiFi Connected");
 
   // Start server for temperature data
   server.begin();
 
-  //initialize LCD Screen
-  tft.begin();
-  tft.setRotation(1);
-
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
-  // Set "cursor" at top left corner of display (0,0) and select font 1
-  // (cursor will move to next line automatically during printing with 'tft.println'
-  //  or stay on the line is there is room for the text with tft.print)
-  tft.setCursor(0, 0);
-  // Set the font colour to be white with a black background, set text size multiplier to 1
-  tft.fillScreen(TFT_BLACK);
+  configTime(gmtOffset_sec, 0, ntpServer);
 
   pinMode(clearImagePin, INPUT_PULLDOWN);
   pinMode(clearImagePout, OUTPUT);
   pinMode(doorPin, INPUT_PULLDOWN);
 
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
+  while(!getLocalTime(&timeinfo, getTimeTimeout)){
     displayTimeInitError();
-    return;
   }
+  tft.fillScreen(TFT_BLACK);
 }
 
 //====================================================================================
